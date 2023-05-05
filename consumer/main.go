@@ -18,7 +18,8 @@ import (
 
 type counter struct {
 	sync.Mutex
-	num int
+	num   int
+	total int
 }
 
 var clientIDs = make([]string, 0)
@@ -49,6 +50,7 @@ func main() {
 				Router: paho.NewSingleHandlerRouter(func(publish *paho.Publish) {
 					messageCount.Mutex.Lock()
 					messageCount.num++
+					messageCount.total++
 					messageCount.Mutex.Unlock()
 					fmt.Printf("message from broker topic: %s -- message %s \n", publish.Topic, publish.Payload)
 				}),
@@ -85,11 +87,28 @@ func main() {
 			<-holdout
 		}()
 	}
+
+	messagesCountSeconds := make(map[int64]int, 0)
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		for t := range ticker.C {
+			messageCount.Mutex.Lock()
+			messagesCountSeconds[t.Unix()] = messageCount.num
+			messageCount.num = 0
+			messageCount.Mutex.Unlock()
+		}
+	}()
+
 	ic := make(chan os.Signal, 1)
 	signal.Notify(ic, os.Interrupt, syscall.SIGTERM)
 	<-ic
 
-	fmt.Printf("Number of messages received:  %d\n", messageCount.num)
+	fmt.Printf("\nNumber of messages received:  %d\n", messageCount.total)
+	//sum := 0
+	//for _, v := range messagesCountSeconds {
+	//	sum += v
+	//}
+	//fmt.Printf("Average messages per seconds: %d\n", sum/len(messagesCountSeconds))
 
 	os.Exit(0)
 }
