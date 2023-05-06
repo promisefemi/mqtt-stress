@@ -28,6 +28,7 @@ func main() {
 	broker := flag.String("b", "127.0.0.1:8000", "Broker IP Address")
 	numOfSensors := flag.Int("s", 1, "Number of clients to simulate")
 	qos := flag.Int("q", 1, "QOS level")
+	print := flag.Bool("p", false, "Print new messages")
 	flag.Parse()
 
 	brokerIP, err := net.ResolveTCPAddr("tcp", *broker)
@@ -45,6 +46,8 @@ func main() {
 				fmt.Printf("unable to make tcp connection - %s\n", err)
 				return
 			}
+			clientID := generateClientID()
+
 			options := paho.ClientConfig{
 				Conn: conn,
 				Router: paho.NewSingleHandlerRouter(func(publish *paho.Publish) {
@@ -52,11 +55,12 @@ func main() {
 					messageCount.num++
 					messageCount.total++
 					messageCount.Mutex.Unlock()
-					fmt.Printf("message from broker topic: %s -- message %s \n", publish.Topic, publish.Payload)
+					if *print {
+						fmt.Printf("ClientID %s -- message from broker topic: %s -- message %s \n", clientID, publish.Topic, publish.Payload)
+					}
 				}),
 			}
 
-			clientID := generateClientID()
 			client := paho.NewClient(options)
 			cp := &paho.Connect{
 				KeepAlive:  30,
@@ -88,13 +92,14 @@ func main() {
 		}()
 	}
 
-	messagesCountSeconds := make(map[int64]int, 0)
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
-		for t := range ticker.C {
+		for range ticker.C {
+			var currentMessageNumber int
 			messageCount.Mutex.Lock()
-			messagesCountSeconds[t.Unix()] = messageCount.num
+			currentMessageNumber = messageCount.num
 			messageCount.num = 0
+			fmt.Printf("Message/s: %d (%d)\n", currentMessageNumber, messageCount.total)
 			messageCount.Mutex.Unlock()
 		}
 	}()
@@ -104,11 +109,6 @@ func main() {
 	<-ic
 
 	fmt.Printf("\nNumber of messages received:  %d\n", messageCount.total)
-	//sum := 0
-	//for _, v := range messagesCountSeconds {
-	//	sum += v
-	//}
-	//fmt.Printf("Average messages per seconds: %d\n", sum/len(messagesCountSeconds))
 
 	os.Exit(0)
 }

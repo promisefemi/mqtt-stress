@@ -16,7 +16,7 @@ import (
 
 type counter struct {
 	sync.Mutex
-	num int
+	num, total int
 }
 
 var clientIDs = make([]string, 0)
@@ -94,9 +94,10 @@ func main() {
 				if _, err := client.Publish(context.Background(), &publish); err != nil {
 					fmt.Printf("error publishing to broker %s", err)
 				}
-				fmt.Printf("message sent -  %s from client %s\n", payloadByte, clientID)
+				//fmt.Printf("message sent -  %s from client %s\n", payloadByte, clientID)
 				messageCount.Mutex.Lock()
 				messageCount.num++
+				messageCount.total++
 				messageCount.Mutex.Unlock()
 
 			}
@@ -104,13 +105,23 @@ func main() {
 		}()
 
 	}
-
 	fmt.Println("Processes are running")
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		for range ticker.C {
+			var currentMessageNumber int
+			messageCount.Mutex.Lock()
+			currentMessageNumber = messageCount.num
+			messageCount.num = 0
+			messageCount.Mutex.Unlock()
+			fmt.Printf("Message/s: %d\n", currentMessageNumber)
+		}
+	}()
 
 	time.Sleep(time.Duration(*timeToRun) * time.Second)
 	fmt.Println("Processes run time complete")
 
-	fmt.Printf("Number of messages sent:  %d\n", messageCount.num)
+	fmt.Printf("Number of messages sent:  %d\n", messageCount.total)
 
 }
 
