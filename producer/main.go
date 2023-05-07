@@ -74,6 +74,10 @@ func main() {
 			}
 			fmt.Printf("Connected to %s\n", tcpServer)
 
+			rand.Seed(time.Now().UnixNano())
+
+      			time.Sleep(time.Duration(rand.Intn(1000000) + 1) * time.Microsecond)
+			
 			ticker := time.NewTicker(time.Duration(*messageInterval) * time.Second)
 			for range ticker.C {
 				payload := map[string]int64{
