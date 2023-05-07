@@ -23,15 +23,23 @@ var clientIDs = make([]string, 0)
 
 func main() {
 	broker := flag.String("b", "127.0.0.1:8000", "Broker IP Address")
+	transportLayer := flag.String("l", "tcp", "Connection transport layer")
 	timeToRun := flag.Int("t", 10, "Time to run in seconds")
 	numOfSensors := flag.Int("s", 1, "Number of clients to simulate")
 	qos := flag.Int("q", 1, "QOS level")
 	messageInterval := flag.Int("p", 5, "Interval for each connection to send message")
 	flag.Parse()
 
-	brokerIP, err := net.ResolveTCPAddr("tcp", *broker)
-	if err != nil {
-		log.Fatalln("Invalid broker ip address, ip address should contain port")
+	var brokerIP *net.TCPAddr
+	var unixDomainSocket string
+	var err error
+	if *transportLayer == "tcp" {
+		brokerIP, err = net.ResolveTCPAddr("tcp", *broker)
+		if err != nil {
+			log.Fatalln("Invalid broker ip address, ip address should contain port")
+		}
+	} else if *transportLayer == "uds" {
+		unixDomainSocket = *broker
 	}
 
 	messageCount := &counter{}
@@ -41,11 +49,18 @@ func main() {
 
 	for i := 0; i < *numOfSensors; i++ {
 		go func() {
-			tcpServer := fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
-			//fmt.Println(tcpServer)
-			conn, err := net.Dial("tcp", tcpServer)
+			var conn net.Conn
+			var err error
+
+			if *transportLayer == "tcp" {
+				tcpServer := fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
+				conn, err = net.Dial("tcp", tcpServer)
+			} else {
+				conn, err = net.Dial("unix", unixDomainSocket)
+			}
+
 			if err != nil {
-				fmt.Printf("unable to make tcp connection - %s\n", err)
+				fmt.Printf("unable to connect to broker - %s\n", err)
 				return
 			}
 			options := paho.ClientConfig{
@@ -69,15 +84,15 @@ func main() {
 				return
 			}
 			if ca.ReasonCode != 0 {
-				fmt.Printf("failed to connect to %s, Reason code: %d, Reason text: %s\n", tcpServer, ca.ReasonCode, ca.Properties.ReasonString)
+				fmt.Printf("failed to connect to %s, Reason code: %d, Reason text: %s\n", conn.RemoteAddr().String(), ca.ReasonCode, ca.Properties.ReasonString)
 				return
 			}
-			fmt.Printf("Connected to %s\n", tcpServer)
+			fmt.Printf("Connected to %s\n", conn.RemoteAddr().String())
 
 			rand.Seed(time.Now().UnixNano())
 
-      			time.Sleep(time.Duration(rand.Intn(1000000) + 1) * time.Microsecond)
-			
+			time.Sleep(time.Duration(rand.Intn(1000000)+1) * time.Microsecond)
+
 			ticker := time.NewTicker(time.Duration(*messageInterval) * time.Second)
 			for range ticker.C {
 				payload := map[string]int64{

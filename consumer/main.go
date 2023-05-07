@@ -28,22 +28,37 @@ func main() {
 	broker := flag.String("b", "127.0.0.1:8000", "Broker IP Address")
 	numOfSensors := flag.Int("s", 1, "Number of clients to simulate")
 	qos := flag.Int("q", 1, "QOS level")
-	print := flag.Bool("p", false, "Print new messages")
+	transportLayer := flag.String("l", "tcp", "Connection transport layer")
+
+	printOut := flag.Bool("p", false, "Print new messages")
 	flag.Parse()
 
-	brokerIP, err := net.ResolveTCPAddr("tcp", *broker)
-	if err != nil {
-		log.Fatalln("Invalid broker ip address, ip address should contain port")
+	var brokerIP *net.TCPAddr
+	var unixDomainSocket string
+	var err error
+	if *transportLayer == "tcp" {
+		brokerIP, err = net.ResolveTCPAddr("tcp", *broker)
+		if err != nil {
+			log.Fatalln("Invalid broker ip address, ip address should contain port")
+		}
+	} else if *transportLayer == "uds" {
+		unixDomainSocket = *broker
 	}
+
 	topic := "$share/my-shared-subscriber-group/2/1/2/#"
 	messageCount := &counter{}
 	for i := 0; i < *numOfSensors; i++ {
 		go func() {
-			tcpServer := fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
-			//fmt.Println(tcpServer)
-			conn, err := net.Dial("tcp", tcpServer)
+			var conn net.Conn
+			var err error
+			if *transportLayer == "tcp" {
+				tcpServer := fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
+				conn, err = net.Dial("tcp", tcpServer)
+			} else {
+				conn, err = net.Dial("unix", unixDomainSocket)
+			}
 			if err != nil {
-				fmt.Printf("unable to make tcp connection - %s\n", err)
+				fmt.Printf("unable to connect to broker - %s\n", err)
 				return
 			}
 			clientID := generateClientID()
@@ -55,7 +70,7 @@ func main() {
 					messageCount.num++
 					messageCount.total++
 					messageCount.Mutex.Unlock()
-					if *print {
+					if *printOut {
 						fmt.Printf("ClientID %s -- message from broker topic: %s -- message %s \n", clientID, publish.Topic, publish.Payload)
 					}
 				}),
@@ -75,10 +90,10 @@ func main() {
 			}
 			//fmt.Printf("\n%+v\n", ca.Properties)
 			if ca.ReasonCode != 0 {
-				fmt.Printf("failed to connect to %s, Reason code: %d, Reason text: %s\n", tcpServer, ca.ReasonCode, ca.Properties.ReasonString)
+				fmt.Printf("failed to connect to %s, Reason code: %d, Reason text: %s\n", conn.RemoteAddr().String(), ca.ReasonCode, ca.Properties.ReasonString)
 				return
 			}
-			fmt.Printf("Connected to %s\n", tcpServer)
+			fmt.Printf("Connected to %s\n", conn.RemoteAddr().String())
 			if _, err := client.Subscribe(context.Background(), &paho.Subscribe{
 				Subscriptions: map[string]paho.SubscribeOptions{
 					topic: {QoS: byte(*qos)},
