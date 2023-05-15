@@ -63,6 +63,7 @@ func main() {
 				fmt.Printf("unable to connect to broker - %s\n", err)
 				return
 			}
+			defer conn.Close()
 			options := paho.ClientConfig{
 				Conn: conn,
 				Router: paho.NewSingleHandlerRouter(func(publish *paho.Publish) {
@@ -88,10 +89,6 @@ func main() {
 				return
 			}
 			fmt.Printf("Connected to %s\n", conn.RemoteAddr().String())
-
-			rand.Seed(time.Now().UnixNano())
-
-			time.Sleep(time.Duration(rand.Intn(1000000)+1) * time.Microsecond)
 
 			ticker := time.NewTicker(time.Duration(*messageInterval) * time.Second)
 			for range ticker.C {
@@ -122,6 +119,8 @@ func main() {
 			}
 			return
 		}()
+		rand.Seed(time.Now().UnixNano())
+		time.Sleep(time.Duration(rand.Intn(1000000)+4) * time.Nanosecond)
 
 	}
 	fmt.Println("Processes are running")
