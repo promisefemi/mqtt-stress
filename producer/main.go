@@ -1,11 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/eclipse/paho.golang/paho"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"log"
 	"math/rand"
 	"net"
@@ -27,7 +26,8 @@ func main() {
 	timeToRun := flag.Int("t", 10, "Time to run in seconds")
 	numOfSensors := flag.Int("s", 1, "Number of clients to simulate")
 	qos := flag.Int("q", 1, "QOS level")
-	messageInterval := flag.Int("p", 5, "Interval for each connection to send message")
+	messageInterval := flag.Int("p", 1, "Interval for each connection to send message")
+	messagePerWorker := flag.Int("m", 1, "Number of messages to send per messageInterval -p")
 	flag.Parse()
 
 	var brokerIP *net.TCPAddr
@@ -49,79 +49,70 @@ func main() {
 
 	for i := 0; i < *numOfSensors; i++ {
 		go func() {
-			var conn net.Conn
-			var err error
 
+			var brokerConnection string
+
+			options := mqtt.NewClientOptions()
 			if *transportLayer == "tcp" {
-				tcpServer := fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
-				conn, err = net.Dial("tcp", tcpServer)
+				brokerConnection = fmt.Sprintf("%s:%d", brokerIP.IP.String(), brokerIP.Port)
 			} else {
-				conn, err = net.Dial("unix", unixDomainSocket)
-			}
-
-			if err != nil {
-				fmt.Printf("unable to connect to broker - %s\n", err)
-				return
-			}
-			defer conn.Close()
-			options := paho.ClientConfig{
-				Conn: conn,
-				Router: paho.NewSingleHandlerRouter(func(publish *paho.Publish) {
-					fmt.Printf(publish.Topic)
-				}),
+				brokerConnection = fmt.Sprintf("unix://%s", unixDomainSocket)
 			}
 
 			clientID := generateClientID()
-			client := paho.NewClient(options)
-			cp := &paho.Connect{
-				KeepAlive:  30,
-				ClientID:   clientID,
-				CleanStart: true,
+			options.AddBroker(brokerConnection)
+			options.SetClientID(clientID)
+			options.OnConnect = connectHandler
+			options.OnConnectionLost = connectionLostHandler
+
+			client := mqtt.NewClient(options)
+			token := client.Connect()
+
+			if token.Wait() && token.Error() != nil {
+				log.Fatalf("error - unable to connect to server %s", token.Error())
 			}
 
-			ca, err := client.Connect(context.Background(), cp)
-			if err != nil {
-				fmt.Printf("unable to connect to broker - %s\n", err)
-				return
-			}
-			if ca.ReasonCode != 0 {
-				fmt.Printf("failed to connect to %s, Reason code: %d, Reason text: %s\n", conn.RemoteAddr().String(), ca.ReasonCode, ca.Properties.ReasonString)
-				return
-			}
-			fmt.Printf("Connected to %s\n", conn.RemoteAddr().String())
+			fmt.Printf("Connected to %s\n", brokerConnection)
+
+			//Internal ticker calculation
+			internalTickerDuration := (float64(*messageInterval) / float64(*messagePerWorker)) * float64(1000)
+
+			//Random start timer
+			rand.Seed(time.Now().UnixNano())
+			time.Sleep(time.Duration(rand.Intn(1000000)+1) * time.Microsecond)
 
 			ticker := time.NewTicker(time.Duration(*messageInterval) * time.Second)
 			for range ticker.C {
-				payload := map[string]int64{
-					"timestamp": time.Now().UnixMicro(),
-					"value":     time.Now().UnixNano(),
-				}
-				payloadByte, err := json.Marshal(payload)
-				if err != nil {
-					fmt.Printf("error converting map to json %s\n", err)
-				}
-				publish := paho.Publish{
-					QoS:     byte(*qos),
-					Retain:  false,
-					Topic:   fmt.Sprintf("2/1/2/%s", clientID),
-					Payload: payloadByte,
-				}
+				fmt.Println("Message Ticker")
+				internalTicker := time.NewTicker(time.Duration(internalTickerDuration) * time.Millisecond)
+				for range internalTicker.C {
+					fmt.Println("Internal ticker run")
+					payload := map[string]int64{
+						"timestamp": time.Now().UnixMicro(),
+						"value":     time.Now().UnixNano(),
+					}
 
-				if _, err := client.Publish(context.Background(), &publish); err != nil {
-					fmt.Printf("error publishing to broker %s", err)
-				}
-				//fmt.Printf("message sent -  %s from client %s\n", payloadByte, clientID)
-				messageCount.Mutex.Lock()
-				messageCount.num++
-				messageCount.total++
-				messageCount.Mutex.Unlock()
+					topic := fmt.Sprintf("2/1/2/%s", clientID)
 
+					payloadByte, err := json.Marshal(payload)
+					if err != nil {
+						fmt.Printf("error converting map to json %s\n", err)
+					}
+
+					token := client.Publish(topic, byte(*qos), false, payloadByte)
+					if token.Wait(); token.Error() != nil {
+						fmt.Printf("error publishing to broker %s\n", token.Error())
+					}
+
+					fmt.Printf("message sent -  %s from client %s\n", payloadByte, clientID)
+					messageCount.Mutex.Lock()
+					messageCount.num++
+					messageCount.total++
+					messageCount.Mutex.Unlock()
+				}
 			}
 			return
 		}()
-		rand.Seed(time.Now().UnixNano())
-		time.Sleep(time.Duration(rand.Intn(1000000)+4) * time.Nanosecond)
-
 	}
 	fmt.Println("Processes are running")
 	go func() {
@@ -160,4 +151,13 @@ func generateClientID() string {
 	}
 	clientIDs = append(clientIDs, clientID)
 	return clientID
+}
+
+func connectHandler(client mqtt.Client) {
+	//fmt.Println("Client is connected")
+	//client.
+}
+
+func connectionLostHandler(client mqtt.Client, err error) {
+	log.Fatalf("error: client connection was lost - %s", err)
 }
