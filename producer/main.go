@@ -83,10 +83,10 @@ func main() {
 
 			ticker := time.NewTicker(time.Duration(*messageInterval) * time.Second)
 			for range ticker.C {
-				fmt.Println("Message Ticker")
+				//fmt.Println("Message Ticker")
 				internalTicker := time.NewTicker(time.Duration(internalTickerDuration) * time.Millisecond)
 				for range internalTicker.C {
-					fmt.Println("Internal ticker run")
+					//fmt.Println("Internal ticker run")
 					payload := map[string]int64{
 						"timestamp": time.Now().UnixMicro(),
 						"value":     time.Now().UnixNano(),
@@ -159,5 +159,5 @@ func connectHandler(client mqtt.Client) {
 }
 
 func connectionLostHandler(client mqtt.Client, err error) {
-	log.Fatalf("error: client connection was lost - %s", err)
+	fmt.Printf("error: client connection was lost - %s", err)
 }
